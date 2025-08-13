@@ -9,10 +9,10 @@ module "vpc1" {
   name = "eyjo-parnas-sec-vpc1"
   cidr = "10.0.0.0/16"
 
-  azs                     = ["ap-northeast-2a", "ap-northeast-2b", "ap-northeast-2c"]
+  azs                     = ["ap-northeast-2a", "ap-northeast-2c"]
 
-  public_subnets          = ["10.0.101.0/24", "10.0.102.0/24", "10.0.103.0/24"]
-  public_subnet_names     = ["eyjo-parnas-vpc1-public-101","eyjo-parnas-vpc1-public-102","eyjo-parnas-vpc1-public-103"]
+  public_subnets          = ["10.0.101.0/24", "10.0.102.0/24", "10.0.103.0/24", "10.0.104.0/24"]
+  public_subnet_names     = ["eyjo-parnas-vpc1-public-101","eyjo-parnas-vpc1-public-102","eyjo-parnas-vpc1-public-103","eyjo-parnas-vpc1-public-104"]
   map_public_ip_on_launch = true
 
   private_subnets         = ["10.0.1.0/24", "10.0.2.0/24", "10.0.3.0/24", "10.0.4.0/24", "10.0.5.0/24", "10.0.6.0/24"]

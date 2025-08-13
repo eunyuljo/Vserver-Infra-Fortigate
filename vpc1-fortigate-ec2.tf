@@ -1,6 +1,6 @@
 resource "aws_instance" "fortifate-ec2" {
   ami           = "ami-007cad54955b2bc38" # fortinet 에서 제공하는 AMI ID -> 기본 세팅 이후는 스냅샷 활용 
-  instance_type = "m5.xlarge"
+  instance_type = "m5.xlarge" # Attach 가능한 Interface 추가 확인
 
   network_interface {
     network_interface_id = aws_network_interface.eni_0.id
@@ -17,6 +17,7 @@ resource "aws_instance" "fortifate-ec2" {
   #vpc_security_group_ids = [aws_security_group.fortigate_sg.id] # 보안 그룹 설정
 }
 
+
 # # ENI_0 생성
 resource "aws_network_interface" "eni_0" {
   subnet_id   = module.vpc1.public_subnets[0]
@@ -24,7 +25,6 @@ resource "aws_network_interface" "eni_0" {
   security_groups = [aws_security_group.fortigate_sg.id] 
   source_dest_check = false 
 }
-
 
 # Fortigate 기본 보안그룹 
 resource "aws_security_group" "fortigate_sg" {
@@ -192,9 +192,8 @@ resource "aws_network_interface_attachment" "eni_attach" {
 resource "aws_network_interface_attachment" "eni_attach_2" {
   instance_id          = aws_instance.fortifate-ec2.id       
   network_interface_id = aws_network_interface.eni_2.id    
-  device_index         = 2                                
+  device_index         = 2                                  
 }
-
 
 ## fortigate 접속용 정보 ##
 output "instance_public_ip" {

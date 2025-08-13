@@ -21,7 +21,8 @@ resource "aws_ec2_transit_gateway_route_table" "tgw_route_table" {
 
 # 3. VPC Attachments
 resource "aws_ec2_transit_gateway_vpc_attachment" "vpc1_attachment" {
-  subnet_ids         = module.vpc1.intra_subnets
+  subnet_ids            = [tolist(module.vpc1.public_subnets)[0], 
+                           tolist(module.vpc1.public_subnets)[1]]
   transit_gateway_id = aws_ec2_transit_gateway.tgw.id
   vpc_id             = module.vpc1.vpc_id
 

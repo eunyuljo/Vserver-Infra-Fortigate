@@ -4,7 +4,7 @@ provider "aws" {
 
 module "vpc1" {
   source  = "terraform-aws-modules/vpc/aws"
-  version = "5.17.0"# 최신 버전 확인 필요
+  version = "~> 5.0"
 
   name = "eyjo-parnas-sec-vpc1"
   cidr = "10.0.0.0/16"
@@ -38,7 +38,7 @@ module "vpc1" {
 
 module "vpc2" {
   source  = "terraform-aws-modules/vpc/aws"
-  version = "5.17.0"
+  version = "~> 5.0"
 
   name = "eyjo-parnas-sec-vpc2"
   cidr = "10.1.0.0/16"

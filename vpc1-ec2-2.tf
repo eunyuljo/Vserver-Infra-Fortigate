@@ -1,29 +1,27 @@
-resource "aws_instance" "vpc1-ec2" {
+resource "aws_instance" "vpc1-ec2-2" {
   ami           = "ami-049788618f07e189d" # 마켓플레이스 AMI ID
   instance_type = "t3.micro"
 
   tags = {
-    Name = "vpc1-private-ec2"
+    Name = "vpc1-private-ec2-2"
   }
-
 
   # 필수 사항으로 NAT 처리를 위해 ENI 의 소스/대상 IP를 확인하면 안된다. 
   source_dest_check = false
 
   # 선택적으로 추가 가능
   key_name = "eyjo-fnf-test-key" # SSH 접속을 위한 키 페어
-  subnet_id = module.vpc1.private_subnets[0]
-  vpc_security_group_ids = [aws_security_group.vpc1_ec2_sg.id] # 보안 그룹 설정
+  subnet_id = module.vpc1.private_subnets[1]  # 다른 AZ의 private subnet 사용
+  vpc_security_group_ids = [aws_security_group.vpc1_ec2_sg_2.id] # 새로운 보안 그룹
   iam_instance_profile = aws_iam_instance_profile.ssm_instance_profile.name
 
   # EC2 시작 시 Apache 설치 및 실행
 }
 
-
-# Fortigate 기본 보안그룹 
-resource "aws_security_group" "vpc1_ec2_sg" {
-  name        = "ec2-security-group"
-  description = "Allow SSH and HTTP traffic"
+# 두 번째 EC2용 보안그룹 
+resource "aws_security_group" "vpc1_ec2_sg_2" {
+  name        = "ec2-security-group-2"
+  description = "Allow SSH and HTTP traffic for second EC2"
   vpc_id      = module.vpc1.vpc_id # VPC와 연결
 
   ingress {
@@ -43,7 +41,7 @@ resource "aws_security_group" "vpc1_ec2_sg" {
   }
 
   ingress {
-    description = "Allow HTTP"
+    description = "Allow HTTPS"
     from_port   = 443
     to_port     = 443
     protocol    = "tcp"
@@ -68,7 +66,7 @@ resource "aws_security_group" "vpc1_ec2_sg" {
   }
 
   tags = {
-    Name = "ec2-sg"
+    Name = "ec2-sg-2"
     Environment = "Test"
   }
 }

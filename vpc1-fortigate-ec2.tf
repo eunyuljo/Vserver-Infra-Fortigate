@@ -2,16 +2,22 @@ resource "aws_instance" "fortifate-ec2" {
   ami           = "ami-007cad54955b2bc38" # fortinet 에서 제공하는 AMI ID -> 기본 세팅 이후는 스냅샷 활용 
   instance_type = "m5.xlarge" # Attach 가능한 Interface 추가 확인
 
-  network_interface {
+  # 새로운 방식: primary_network_interface 사용 (device_index는 자동으로 0)
+  primary_network_interface {
     network_interface_id = aws_network_interface.eni_0.id
-    device_index         = 0
   }
+  
   tags = {
     Name = "fortigate-ec2"
   }
 
   key_name = "eyjo-fnf-test-key" # SSH 접속을 위한 키 페어
 
+  # 다중 ENI 환경에서는 source_dest_check 변경 무시
+  lifecycle {
+    ignore_changes = [source_dest_check]
+  }
+  
   #ENI를 별도 선언하므로, 아래 내용과는 충돌한다. 따라서 주석처리했다. 
   #subnet_id = module.vpc1.public_subnets[0]
   #vpc_security_group_ids = [aws_security_group.fortigate_sg.id] # 보안 그룹 설정

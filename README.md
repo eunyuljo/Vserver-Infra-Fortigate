@@ -2,51 +2,74 @@
 
 ## 📋 개요
 
-AWS 기반 Fortigate 방화벽을 통한 엔터프라이즈급 멀티 도메인 웹 서비스 인프라
+AWS 기반 Fortigate 방화벽과 Transit Gateway를 활용한 멀티 VPC 보안 인프라
 
 ### 🎯 핵심 특징
 - **중앙집중식 보안**: Fortigate 방화벽을 통한 모든 트래픽 제어
-- **멀티 도메인 지원**: 단일 인프라로 여러 도메인 서비스 제공
-- **호스트헤더 라우팅**: REST API Gateway 기반 지능형 트래픽 분기
-- **계층화된 보안**: 4단계 보안 계층으로 방어 심도 구현
+- **멀티 VPC 지원**: Transit Gateway를 통한 VPC간 연결
+- **로드밸런싱**: External NLB + Internal ALB 조합
+- **계층화된 보안**: Fortigate + WAF + Security Groups 다중 보안
 
 ## 🏗️ 아키텍처
 
 ```
 ┌─────────────┐    ┌─────────────┐    ┌─────────────┐    ┌─────────────┐
-│   Internet  │───▶│External NLB │───▶│  Fortigate  │───▶│Internal NLB │
+│   Internet  │───▶│External NLB │───▶│  Fortigate  │───▶│Internal ALB │
 └─────────────┘    └─────────────┘    └─────────────┘    └─────────────┘
                                            │                     │
                                       Secondary IP           Port 80/443
                                       10.0.101.101                │
                                                                   ▼
 ┌─────────────┐    ┌─────────────┐    ┌─────────────────────────────────┐
-│  Backend A  │◀───│  Backend B  │◀───│       REST API Gateway         │
-└─────────────┘    └─────────────┘    └─────────────────────────────────┘
-      ▲                   ▲                           │
-api.example.com    web.example.com           Host Header Routing
+│    VPC2     │◀───│  Backend    │◀───│         Internal ALB            │
+│  Services   │    │  Services   │    └─────────────────────────────────┘
+└─────────────┘    └─────────────┘                    │
+      ▲                   ▲                Transit Gateway
+   TGW 연결            VPC1 Services           연결 지원
 ```
 
 ### 트래픽 플로우
 1. **External NLB**: 인터넷 트래픽 수신 및 분산
-2. **Fortigate**: Secondary IP(10.0.101.101)로 보안 필터링
-3. **Internal NLB**: 내부 네트워크 로드밸런싱  
-4. **REST API Gateway**: 호스트헤더 기반 백엔드 라우팅
+2. **Fortigate**: Secondary IP(10.0.101.101)로 보안 필터링 및 정책 적용
+3. **Internal ALB**: 내부 애플리케이션 로드밸런싱  
+4. **Backend Services**: VPC1/VPC2 내부 서비스들로 라우팅
+5. **Transit Gateway**: VPC간 통신 및 연결성 제공
 
 ## 🔧 인프라 구성
 
 ### 네트워크 아키텍처
 ```
-VPC1 (10.0.0.0/16)
+VPC1 (10.0.0.0/16) - eyjo-parnas-sec-vpc1
 ├── Public Subnets
-│   ├── 10.0.101.0/24 (AZ-1a) - External NLB, Fortigate
-│   └── 10.0.102.0/24 (AZ-1c) - External NLB
+│   ├── 10.0.101.0/24 (AZ-2a) - External NLB, Fortigate
+│   ├── 10.0.102.0/24 (AZ-2c) - External NLB
+│   ├── 10.0.103.0/24 (AZ-2a) - Reserved
+│   └── 10.0.104.0/24 (AZ-2c) - Reserved
 ├── Private Subnets  
-│   ├── 10.0.1.0/24 (AZ-1a) - Internal NLB, API Gateway VPC Endpoint
-│   └── 10.0.2.0/24 (AZ-1c) - Internal NLB, API Gateway VPC Endpoint
+│   ├── 10.0.1.0/24 (AZ-2a) - Internal ALB, Backend Services
+│   ├── 10.0.2.0/24 (AZ-2c) - Internal ALB, Backend Services
+│   ├── 10.0.3.0/24 (AZ-2a) - Reserved
+│   ├── 10.0.4.0/24 (AZ-2c) - TGW 연결용
+│   ├── 10.0.5.0/24 (AZ-2a) - TGW 연결용
+│   └── 10.0.6.0/24 (AZ-2c) - TGW 연결용
 └── Intra Subnets
-    ├── 10.0.10.0/24 (AZ-1a) - Fortigate Management
-    └── 10.0.20.0/24 (AZ-1c) - Reserved
+    ├── 10.0.10.0/24 (AZ-2a) - Management/Internal
+    ├── 10.0.11.0/24 (AZ-2c) - Management/Internal
+    └── 10.0.12.0/24 (AZ-2a) - Reserved
+
+VPC2 (10.1.0.0/16) - eyjo-parnas-sec-vpc2
+├── Public Subnets
+│   ├── 10.1.101.0/24 (AZ-2a) - Secondary Services
+│   ├── 10.1.102.0/24 (AZ-2b) - Secondary Services
+│   └── 10.1.103.0/24 (AZ-2c) - Secondary Services
+├── Private Subnets
+│   ├── 10.1.1.0/24 (AZ-2a) - Private Services
+│   ├── 10.1.2.0/24 (AZ-2b) - Private Services
+│   └── 10.1.3.0/24 (AZ-2c) - Private Services
+└── Intra Subnets
+    ├── 10.1.10.0/24 (AZ-2a) - TGW 연결
+    ├── 10.1.11.0/24 (AZ-2b) - TGW 연결
+    └── 10.1.12.0/24 (AZ-2c) - TGW 연결
 ```
 
 ### 핵심 컴포넌트
@@ -55,22 +78,25 @@ VPC1 (10.0.0.0/16)
 - **인스턴스**: m5.xlarge (4 vCPU, 16GB RAM)
 - **인터페이스 구성**:
   - `port1`: 10.0.101.100 (Primary), **10.0.101.101 (Secondary)** ← 핵심
-  - `port2`: 10.0.1.100 (Internal)
-  - `port3`: 10.0.10.100 (Management)
+  - Secondary IP로 트래픽 수신 및 처리
+- **보안그룹**: SSH(22), HTTP(80), HTTPS(443), ICMP 허용
 
 #### ⚖️ Load Balancer 구성
 - **External NLB**: 
   - 인터넷 게이트웨이 연결
   - 80, 443 포트 리스닝
   - Fortigate Secondary IP로 전달
-- **Internal NLB**:
+- **Internal ALB**:
   - Private 서브넷 배치
-  - API Gateway VPC Endpoint 연결
+  - 백엔드 서비스 연결
 
-#### 🌐 REST API Gateway
-- **타입**: Private REST API Gateway
-- **연결**: VPC Endpoint를 통한 내부 통신
-- **기능**: 호스트헤더 보존 및 백엔드 프록시
+#### 🔒 WAF 및 보안
+- **Private WAF**: 웹 애플리케이션 방화벽 설정
+- **VPC Endpoint**: 내부 통신을 위한 프라이빗 연결
+
+#### 🌉 Transit Gateway
+- **VPC 간 연결**: VPC1과 VPC2 연결
+- **라우팅**: 중앙집중식 네트워크 관리
 
 ## 📁 파일 구조
 
@@ -79,9 +105,13 @@ VPC1 (10.0.0.0/16)
 ├── FORTIGATE-CONFIGURATION.md          # 🔥 Fortigate 설정 상세 가이드
 ├── vpc.tf                              # 🌐 VPC 및 네트워크 기본 구성
 ├── vpc1-fortigate-ec2.tf               # 🔥 Fortigate EC2 인스턴스 및 ENI
-├── vpc1-extenral-nlb-internal-nlb.tf   # ⚖️ 로드밸런서 구성
-├── vpc1-rest-api-gateway-private.tf    # 🌐 REST API Gateway 설정
+├── vpc1-extenral-nlb-internal-nlb.tf   # ⚖️ External NLB 구성
+├── vpc1-private-waf.tf                  # 🔒 WAF 및 Private 보안 설정
+├── vpc1-internal-alb.tf                 # ⚖️ Internal ALB 구성
 ├── vpc_endpoint.tf                     # 🔗 VPC Endpoint 구성
+├── vpc1-ec2.tf                         # 💻 VPC1 EC2 인스턴스
+├── vpc1-ec2-2.tf                       # 💻 VPC1 추가 EC2 인스턴스
+├── vpc2-ec2.tf                         # 💻 VPC2 EC2 인스턴스
 ├── ssm-iam.tf                          # 🔐 IAM 역할 및 정책
 ├── trasitgateway.tf                    # 🌉 Transit Gateway (선택사항)
 ├── variables.tf                        # ⚙️ 변수 정의
@@ -136,40 +166,28 @@ terraform output instance_instance_id
 # 상세 내용은 FORTIGATE-CONFIGURATION.md 참조
 ```
 
-#### 4️⃣ VPC Endpoint 연결 (🚨 중요!)
+#### 4️⃣ ALB 및 백엔드 서비스 연결
 ```bash
-# 1. VPC Endpoint 정보 확인
-API_GW_ENDPOINT_ID=$(terraform output -raw api_gateway_vpc_endpoint_id)
-TARGET_GROUP_ARN=$(terraform output -raw internal_nlb_target_group_arn)
+# 1. Internal ALB 정보 확인
+INTERNAL_ALB_DNS=$(terraform output -raw internal_alb_dns)
+INTERNAL_ALB_ZONE_ID=$(terraform output -raw internal_alb_zone_id)
 
-# 2. VPC Endpoint의 ENI ID 확인
-ENI_IDS=$(aws ec2 describe-vpc-endpoints \
-  --vpc-endpoint-ids $API_GW_ENDPOINT_ID \
-  --query 'VpcEndpoints[0].NetworkInterfaceIds' \
-  --output text)
+# 2. VPC1 EC2 인스턴스 정보 확인
+VPC1_EC2_IP=$(terraform output -raw vpc1_ec2_private_ip)
 
-# 3. 각 ENI의 Private IP 확인
-for eni_id in $ENI_IDS; do
-  PRIVATE_IP=$(aws ec2 describe-network-interfaces \
-    --network-interface-ids $eni_id \
-    --query 'NetworkInterfaces[0].PrivateIpAddress' \
-    --output text)
-  echo "ENI: $eni_id, IP: $PRIVATE_IP"
-done
-
-# 4. Target Group에 VPC Endpoint IP 등록
-aws elbv2 register-targets \
-  --target-group-arn $TARGET_GROUP_ARN \
-  --targets Id=<IP-1>,Port=443 Id=<IP-2>,Port=443
+# 3. 백엔드 서비스 상태 확인
+echo "Internal ALB DNS: $INTERNAL_ALB_DNS"
+echo "VPC1 EC2 IP: $VPC1_EC2_IP"
 ```
 
 #### 5️⃣ 연결 테스트
 ```bash
-# API Gateway URL 확인
-terraform output rest_api_gateway_url
+# External NLB DNS 확인
+EXTERNAL_NLB_DNS=$(terraform output -raw external_nlb_dns)
 
 # 연결 테스트 (Fortigate 설정 완료 후)
-curl -H "Host: api.example.com" http://<external-nlb-dns>/health
+curl http://$EXTERNAL_NLB_DNS/
+curl https://$EXTERNAL_NLB_DNS/
 ```
 
 ## 🔧 운영 가이드
@@ -178,9 +196,9 @@ curl -H "Host: api.example.com" http://<external-nlb-dns>/health
 ```bash
 # 배포 후 확인할 주요 정보
 terraform output external_nlb_dns          # External NLB 도메인
-terraform output internal_nlb_dns          # Internal NLB 도메인  
-terraform output rest_api_gateway_url      # API Gateway URL
-terraform output instance_public_ip        # Fortigate 접속 IP
+terraform output internal_alb_dns          # Internal ALB 도메인  
+terraform output internal_alb_zone_id      # Internal ALB Zone ID
+terraform output vpc1_ec2_private_ip       # VPC1 EC2 Private IP
 ```
 
 ### 🔍 상태 모니터링
@@ -272,12 +290,13 @@ aws cloudwatch put-metric-alarm \
 ```
 🔥 Fortigate EC2 (m5.xlarge):     ~$140/월
 ⚖️ External NLB:                 ~$20/월  
-⚖️ Internal NLB:                 ~$20/월
-🌐 API Gateway:                  ~$3.50/10만 요청
+⚖️ Internal ALB:                 ~$20/월
+💻 EC2 Instances (VPC1/VPC2):    ~$50/월
+🌉 Transit Gateway:              ~$40/월
 🔗 VPC Endpoint:                 ~$7/월
 📊 Data Transfer:                변동적
 
-총 예상 비용: ~$190-250/월 (트래픽에 따라)
+총 예상 비용: ~$280-350/월 (트래픽에 따라)
 ```
 
 ### 비용 절약 방법
@@ -383,7 +402,7 @@ terraform apply -var-file=terraform.tfvars.prod
 
 ---
 
-**📅 최종 업데이트**: 2025-08-19  
-**🏷️ 버전**: 2.0  
+**📅 최종 업데이트**: 2025-08-26  
+**🏷️ 버전**: 2.1  
 **👥 작성자**: Infrastructure Team  
 **📝 라이선스**: MIT

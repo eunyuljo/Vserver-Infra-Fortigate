@@ -17,7 +17,7 @@ module "vpc1" {
 
   private_subnets         = ["10.0.1.0/24", "10.0.2.0/24", "10.0.3.0/24", "10.0.4.0/24", "10.0.5.0/24", "10.0.6.0/24"]
   private_subnet_names    = ["eyjo-parnas-vpc1-private-1","eyjo-parnas-vpc1-private-2","eyjo-parnas-vpc1-private-3",
-                          "eyjo-parnas-vpc1-private-tgw-4","eyjo-parnas-vpc1-private-tgw-5","eyjo-parnas-vpc1-private-tgw-6"]
+                          "eyjo-parnas-vpc1-private-4","eyjo-parnas-vpc1-private-5","eyjo-parnas-vpc1-private-6"]
 
   # tgw 용 
   intra_subnets           =  ["10.0.10.0/24","10.0.11.0/24","10.0.12.0/24"]

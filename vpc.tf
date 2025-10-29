@@ -20,8 +20,8 @@ module "vpc1" {
                           "eyjo-parnas-vpc1-private-4","eyjo-parnas-vpc1-private-5","eyjo-parnas-vpc1-private-6"]
 
   # tgw 용 
-  intra_subnets           =  ["10.0.10.0/24","10.0.11.0/24","10.0.12.0/24"]
-  intra_subnet_names      = ["eyjo-parnas-vpc1-intra-1","eyjo-parnas-vpc1-intra-2","eyjo-parnas-vpc1-intra-3"]
+  intra_subnets           =  ["10.0.10.0/24","10.0.11.0/24","10.0.12.0/24","10.0.13.0/24"]
+  intra_subnet_names      = ["eyjo-parnas-vpc1-tgw-a","eyjo-parnas-vpc1-tgw-c","eyjo-parnas-vpc1-intra-1","eyjo-parnas-vpc1-intra-2"]
   #각 VPC 환경은 NAT를 사용하지 않고 FW 을 통해 경유하도록 구성한다.
   #enable_nat_gateway = true
   #single_nat_gateway = true

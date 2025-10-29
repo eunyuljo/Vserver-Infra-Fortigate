@@ -201,6 +201,26 @@ resource "aws_network_interface_attachment" "eni_attach_2" {
   device_index         = 2                                  
 }
 
+############################################################
+# VPC1 Routing - VPC2 트래픽을 TGW로
+############################################################
+
+# VPC1 intra subnet route table에 VPC2 CIDR을 TGW로 보내는 라우트 추가
+resource "aws_route" "vpc1_intra_to_vpc2" {
+  route_table_id         = module.vpc1.intra_route_table_ids[0]
+  destination_cidr_block = "10.1.0.0/16"
+  transit_gateway_id     = aws_ec2_transit_gateway.tgw.id
+}
+
+# VPC1 private subnet route tables에 VPC2 CIDR을 TGW로 보내는 라우트 추가
+# FortiGate에서 VPC2로 응답할 때 필요
+resource "aws_route" "vpc1_private_to_vpc2" {
+  count                  = length(module.vpc1.private_route_table_ids)
+  route_table_id         = module.vpc1.private_route_table_ids[count.index]
+  destination_cidr_block = "10.1.0.0/16"
+  transit_gateway_id     = aws_ec2_transit_gateway.tgw.id
+}
+
 ## fortigate 접속용 정보 ##
 output "instance_public_ip" {
   description = "The public IP address of the instance"

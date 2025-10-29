@@ -122,13 +122,24 @@ resource "aws_lb_listener" "alb_internal_https_listener" {
   port              = "443"
   protocol          = "HTTPS"
   ssl_policy        = "ELBSecurityPolicy-TLS-1-2-2017-01"
-  certificate_arn   = "arn:aws:acm:ap-northeast-2:626635430480:certificate/44b7c94c-c21f-4916-aeea-f91f5e18cd25" # SSL 인증서 ARN 필요시
+  certificate_arn   = "arn:aws:acm:ap-northeast-2:626635430480:certificate/44b7c94c-c21f-4916-aeea-f91f5e18cd25" # 기본 인증서 (*.country-mouse.net)
 
   default_action {
     type             = "forward"
     target_group_arn = aws_lb_target_group.alb_internal_https_tg.arn
   }
 }
+
+# 추가 도메인용 인증서 (예시 - 필요시 주석 해제)
+# resource "aws_lb_listener_certificate" "additional_cert_1" {
+#   listener_arn    = aws_lb_listener.alb_internal_https_listener.arn
+#   certificate_arn = "arn:aws:acm:ap-northeast-2:626635430480:certificate/ANOTHER-CERT-ARN"
+# }
+#
+# resource "aws_lb_listener_certificate" "additional_cert_2" {
+#   listener_arn    = aws_lb_listener.alb_internal_https_listener.arn
+#   certificate_arn = "arn:aws:acm:ap-northeast-2:626635430480:certificate/YET-ANOTHER-CERT-ARN"
+# }
 
 # Target Group Attachment - EC2 인스턴스를 Target Group에 연결
 resource "aws_lb_target_group_attachment" "alb_internal_http_attach" {

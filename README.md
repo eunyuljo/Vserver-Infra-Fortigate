@@ -1,16 +1,16 @@
 # Parnas Vserver Infrastructure with FortiGate
 
-## 📋 개요
+## 개요
 
-AWS 기반 FortiGate 방화벽과 Transit Gateway를 활용한 멀티 VPC 보안 인프라
-도메인 기반 라우팅 및 Nginx 프록시 레이어를 통한 확장 가능한 아키텍처
+AWS에서 FortiGate 방화벽 중심으로 구축한 멀티 VPC 보안 인프라입니다.
+처음엔 단순하게 시작했는데 요구사항이 추가되면서 도메인별 라우팅이랑 프록시 레이어까지 붙게 됐네요.
 
-### 🎯 핵심 특징
-- **중앙집중식 보안**: FortiGate 방화벽을 통한 모든 트래픽 제어
-- **멀티 VPC 지원**: Transit Gateway를 통한 VPC 간 연결
-- **도메인 기반 라우팅**: Host Header를 활용한 멀티 도메인 지원 (*.country-mouse.net)
-- **계층화된 로드밸런싱**: External NLB → Internal ALB → Internal NLB → Nginx Proxy
-- **확장 가능한 프록시**: Nginx 프록시 레이어 (향후 WAF 교체 가능)
+### 주요 특징
+- FortiGate로 모든 인바운드 트래픽 필터링
+- Transit Gateway로 VPC 간 통신 및 중앙 집중식 egress
+- ALB에서 도메인별(*.country-mouse.net) 라우팅 처리
+- 일단 Nginx 프록시로 구성했고 나중에 WAF 필요하면 교체 예정
+- 로드밸런서 여러 개 거치는데 각각 용도가 달라서 어쩔 수 없음
 
 ## 🏗️ 아키텍처
 
@@ -78,14 +78,19 @@ AWS 기반 FortiGate 방화벽과 Transit Gateway를 활용한 멀티 VPC 보안
              └───────────────────┘     └───────────────────┘
 ```
 
-### 트래픽 플로우
-1. **External NLB**: 인터넷 트래픽 수신 및 분산 (포트 80/443)
-2. **FortiGate**: Secondary IP(10.0.101.101)로 보안 필터링 및 정책 적용
-3. **Internal ALB**: Host Header 기반 도메인 라우팅 (api/web/app/admin.country-mouse.net)
-4. **Internal NLB**: Nginx 프록시 인스턴스로 트래픽 분산
-5. **Nginx Proxy**: Host Header 보존하며 백엔드로 프록시
-6. **Backend Services**: VPC1 내부 서비스들로 최종 라우팅
-7. **Transit Gateway**: VPC 간 통신 및 중앙집중식 egress 제공
+### 트래픽 흐름
+
+외부에서 들어오는 요청이 실제 백엔드까지 도달하는 과정:
+
+1. 인터넷 → External NLB (80/443 포트 리스닝)
+2. NLB → FortiGate의 Secondary IP (10.0.101.101)
+   - Secondary IP 설정이 핵심. 이거 빠뜨리면 트래픽 안들어옴
+3. FortiGate 방화벽 통과 → Internal ALB로 전달
+4. Internal ALB에서 Host Header 보고 라우팅
+   - api/web는 바로 EC2로
+   - app/admin은 Nginx 프록시 거쳐서
+5. Nginx Proxy (필요한 경우만) → 백엔드 EC2
+6. VPC2는 Transit Gateway 통해서 VPC1 거쳐 나감 (중앙 집중식)
 
 ## 🔧 인프라 구성
 
@@ -124,57 +129,50 @@ VPC2 (10.1.0.0/16) - eyjo-parnas-sec-vpc2
     └── 10.1.12.0/24 (AZ-2c) - TGW 연결
 ```
 
-### 핵심 컴포넌트
+### 주요 컴포넌트
 
-#### 🔥 FortiGate 방화벽
-- **인스턴스**: m5.xlarge (4 vCPU, 16GB RAM)
-- **인터페이스 구성**:
-  - `port1` (External): 10.0.101.100 (Primary), **10.0.101.101 (Secondary)** ← 핵심
-  - `port2` (Internal): 10.0.1.100
-  - `port3` (Management): 10.0.10.100
-- **역할**: 모든 인바운드 트래픽의 보안 검사 및 필터링
-- **보안그룹**: SSH(22), HTTP(80), HTTPS(443), FortiGate 관리 포트, ICMP 허용
+#### FortiGate 방화벽
+- m5.xlarge (4 vCPU, 16GB RAM)
+- ENI 3개 붙어있음:
+  - port1 (External): 10.0.101.100이 Primary, **10.0.101.101이 Secondary** - 여기가 중요
+  - port2 (Internal): 10.0.1.100
+  - port3 (Management): 10.0.10.100
+- 모든 인바운드 트래픽이 여기 거쳐감
+- 보안그룹은 일단 22/80/443/ICMP 다 열어놨음 (나중에 조이는게 좋긴 함)
 
-#### ⚖️ Load Balancer 구성
-- **External NLB (Public)**:
-  - Public 서브넷 배치 (AZ 2a, 2c)
-  - 80, 443 포트 리스닝
-  - FortiGate Secondary IP (10.0.101.101)로 전달
+#### 로드밸런서들
 
-- **Internal ALB (Private)**:
-  - Private 서브넷 배치 (AZ 2a, 2c)
-  - **Host Header 기반 라우팅**:
-    - `api.country-mouse.net` → API Target Group
-    - `web.country-mouse.net` → Web Target Group
-    - `app.country-mouse.net` → App Target Group
-    - `admin.country-mouse.net` → Admin Target Group
-  - SSL/TLS 종료 (ACM 인증서 사용)
+**External NLB** (Public)
+- 인터넷 진입점
+- 80/443 리스닝해서 FortiGate Secondary IP로 보냄
+- 2개 AZ에 분산
 
-- **Internal NLB (Private - WAF용)**:
-  - Private 서브넷 배치 (AZ 2a, 2c)
-  - TCP 프로토콜 (포트 80)
-  - Nginx 프록시 인스턴스로 트래픽 분산
-  - Cross-AZ 로드밸런싱: Disabled
+**Internal ALB** (Private)
+- 도메인 라우팅 담당
+- Host Header 보고 아래처럼 분기:
+  - api.country-mouse.net → API 타겟
+  - web.country-mouse.net → Web 타겟
+  - app.country-mouse.net → App 타겟 (→ NLB)
+  - admin.country-mouse.net → Admin 타겟 (→ NLB)
+- SSL 인증서는 ACM에서 가져옴
 
-#### 🔄 Nginx Proxy Layer
-- **인스턴스**: Ubuntu 24.04, t3.micro × 2 (AZ 2a, 2c)
-- **역할**:
-  - HTTP 프록시 (향후 Third-party WAF 교체 가능)
-  - Host Header 보존 및 전달
-  - 백엔드 서비스로 트래픽 프록시
-- **기능**:
-  - `/health` 헬스체크 엔드포인트
-  - X-Forwarded-* 헤더 전달
-  - 액세스 로그 수집
-- **자동 구성**: User Data로 nginx 자동 설치 및 설정
+**Internal NLB** (Private)
+- app/admin 도메인용 프록시 앞단
+- TCP 80 포트만
+- Cross-AZ 로드밸런싱 꺼놨음 (비용 절감)
 
-#### 🌉 Transit Gateway
-- **VPC 간 연결**: VPC1과 VPC2 연결
-- **중앙집중식 Egress**: VPC2의 모든 인터넷 트래픽은 VPC1의 FortiGate 경유
-- **라우팅**:
-  - Default Route (0.0.0.0/0) → VPC1
-  - VPC1 ↔ VPC2 상호 연결 (Propagation)
-- **설정**: Default Route Tables 비활성화, Custom Route Table 사용
+#### Nginx Proxy
+- Ubuntu 24.04, t3.micro 2대 (AZ별 하나씩)
+- 지금은 그냥 프록시 역할만 함
+- 나중에 실제 WAF 필요하면 이거 교체하면 됨
+- User Data로 자동 설치되게 해놨음
+- /health 엔드포인트로 헬스체크 받음
+
+#### Transit Gateway
+- VPC1, VPC2 연결용
+- Default route table 안쓰고 커스텀으로 만듦
+- VPC2에서 나가는 트래픽은 전부 VPC1 FortiGate 거쳐서 나감
+- 이래야 중앙에서 로그 보고 통제할 수 있어서
 
 ## 📁 파일 구조
 
@@ -198,215 +196,198 @@ VPC2 (10.1.0.0/16) - eyjo-parnas-sec-vpc2
 └── terraform.tfstate*                  # 📊 Terraform 상태 파일
 ```
 
-## 🚀 배포 가이드
+## 배포 방법
 
-### 사전 요구사항
-```bash
-# 필수 도구
-terraform >= 1.0
-aws-cli >= 2.0
-jq (선택사항)
+### 필요한거
+- Terraform 1.0 이상
+- AWS CLI 2.0 이상
+- jq 있으면 편함
+- AWS 계정에 EC2, VPC, ELB, IAM 권한
 
-# AWS 권한
-EC2, VPC, ELB, API Gateway, IAM 권한 필요
-```
+### 배포 절차
 
-### 📋 배포 단계
-
-#### 1️⃣ 환경 준비
+**1. 환경 준비**
 ```bash
 # 리포지토리 클론
 git clone <repository-url>
 cd Parnas-Vserver-Infra-Fortigate
 
-# AWS 인증 확인
+# AWS 계정 확인
 aws sts get-caller-identity
 ```
 
-#### 2️⃣ Terraform 배포
+**2. Terraform 실행**
 ```bash
-# Terraform 초기화
 terraform init
-
-# 배포 계획 확인
-terraform plan
-
-# 인프라 배포
+terraform plan  # 뭐가 생성될지 미리 확인
 terraform apply
 ```
 
-#### 3️⃣ FortiGate 설정
+**3. FortiGate 설정**
 ```bash
-# FortiGate 인스턴스 접속 정보 확인
+# 접속 정보 확인
 terraform output instance_public_ip
 terraform output instance_instance_id
 
-# FortiGate 설정 수행
-# 상세 내용은 FORTIGATE-CONFIGURATION.md 참조
+# FortiGate 설정은 FORTIGATE-CONFIGURATION.md 보고 진행
 ```
 
-#### 4️⃣ 도메인 기반 라우팅 설정
+**4. 도메인 라우팅 확인**
 ```bash
-# 1. Internal ALB 정보 확인
+# ALB 정보 확인
 INTERNAL_ALB_DNS=$(terraform output -raw internal_alb_dns)
-echo "Internal ALB DNS: $INTERNAL_ALB_DNS"
+echo "Internal ALB: $INTERNAL_ALB_DNS"
 
-# 2. Internal NLB (WAF/Proxy용) 정보 확인
+# NLB 정보 확인
 NLB_WAF_DNS=$(terraform output -raw nlb_waf_dns)
-echo "Internal NLB (Proxy) DNS: $NLB_WAF_DNS"
+echo "Internal NLB (Proxy): $NLB_WAF_DNS"
 
-# 3. Nginx Proxy 인스턴스 확인
-# proxy-instance-1, proxy-instance-2가 자동으로 생성됨
-# User Data로 nginx가 자동 설치 및 구성됨
+# Nginx Proxy는 자동으로 생성되고 User Data로 설치됨
 ```
 
-#### 5️⃣ 도메인 DNS 설정
+**5. DNS 설정**
 ```bash
-# 각 도메인을 External NLB로 연결
-# DNS 레코드 (Route53 또는 외부 DNS 서버):
-# api.country-mouse.net    → CNAME → [External NLB DNS]
-# web.country-mouse.net    → CNAME → [External NLB DNS]
-# app.country-mouse.net    → CNAME → [External NLB DNS]
-# admin.country-mouse.net  → CNAME → [External NLB DNS]
+# Route53이나 DNS 서버에서 아래처럼 CNAME 추가:
+# api.country-mouse.net    → External NLB DNS
+# web.country-mouse.net    → External NLB DNS
+# app.country-mouse.net    → External NLB DNS
+# admin.country-mouse.net  → External NLB DNS
 ```
 
-#### 6️⃣ 연결 테스트
+**6. 테스트**
 ```bash
-# External NLB DNS 확인
 EXTERNAL_NLB_DNS=$(terraform output -raw external_nlb_dns)
 
-# 도메인별 테스트 (FortiGate 설정 완료 후)
+# Host Header 테스트 (FortiGate 설정 후)
 curl -H "Host: api.country-mouse.net" http://$EXTERNAL_NLB_DNS/
 curl -H "Host: web.country-mouse.net" http://$EXTERNAL_NLB_DNS/
 curl -H "Host: app.country-mouse.net" http://$EXTERNAL_NLB_DNS/
 curl -H "Host: admin.country-mouse.net" http://$EXTERNAL_NLB_DNS/
 
-# 실제 도메인으로 테스트 (DNS 설정 후)
+# DNS 설정 후에는 그냥
 curl http://api.country-mouse.net/
 curl http://web.country-mouse.net/
 ```
 
-## 🔧 운영 가이드
+## 운영
 
-### 주요 출력 정보
+### 주요 정보 보는법
 ```bash
-# 배포 후 확인할 주요 정보
+# 배포 후 확인할거
 terraform output external_nlb_dns          # External NLB DNS
 terraform output internal_alb_dns          # Internal ALB DNS
 terraform output nlb_waf_dns               # Internal NLB (Proxy) DNS
-terraform output nlb_waf_arn               # Internal NLB ARN
 terraform output instance_public_ip        # FortiGate Public IP
 terraform output instance_instance_id      # FortiGate Instance ID
 ```
 
-### 🔍 상태 모니터링
+### 모니터링
 ```bash
-# External NLB 타겟 상태 확인 (FortiGate)
+# External NLB 상태 (FortiGate)
 aws elbv2 describe-target-health \
   --target-group-arn $(terraform output -raw external_nlb_target_group_arn)
 
-# Internal NLB 타겟 상태 확인 (Nginx Proxy)
+# Internal NLB 상태 (Nginx Proxy)
 aws elbv2 describe-target-health \
   --target-group-arn $(terraform output -raw nlb_waf_tg_arn)
 
-# Internal ALB 타겟 그룹별 상태 확인
+# Internal ALB 타겟 그룹들
 aws elbv2 describe-target-groups \
   --load-balancer-arn $(terraform output -raw internal_alb_arn) | \
   jq '.TargetGroups[].TargetGroupName'
 
-# Nginx Proxy 인스턴스 로그 확인 (SSM 사용)
+# Nginx Proxy 로그 (SSM으로 접속)
 aws ssm start-session --target i-xxxxxxxxx
-# 인스턴스 접속 후:
+# 접속 후:
 sudo tail -f /var/log/nginx/proxy_access.log
 sudo tail -f /var/log/nginx/proxy_error.log
 ```
 
-### 🚨 문제 해결
+### 트러블슈팅
 
-#### 트래픽이 전달되지 않는 경우
+**트래픽이 안들어올 때**
 ```bash
-# 1. FortiGate Secondary IP 설정 확인
+# 1. FortiGate Secondary IP 확인 (제일 중요)
 ssh admin@<fortigate-ip>
 show system interface port1
 
-# 2. External NLB 타겟 상태 확인
+# 2. NLB 타겟 상태 확인
 aws elbv2 describe-target-health \
   --target-group-arn $(terraform output -raw external_nlb_target_group_arn)
 
-# 3. Internal NLB (Proxy) 타겟 상태 확인
+# 3. Proxy NLB 상태 확인
 aws elbv2 describe-target-health \
   --target-group-arn $(terraform output -raw nlb_waf_tg_arn)
 
-# 4. 보안 그룹 확인
+# 4. 보안그룹
 aws ec2 describe-security-groups --group-ids <sg-id>
 ```
 
-#### 도메인 라우팅이 동작하지 않는 경우
+**도메인 라우팅 안될 때**
 ```bash
-# 1. Internal ALB Listener Rules 확인
+# ALB Listener Rules 확인
 aws elbv2 describe-rules \
   --listener-arn $(terraform output -raw internal_alb_http_listener_arn)
 
-# 2. Host Header 테스트
+# Host Header 테스트
 curl -v -H "Host: api.country-mouse.net" http://<nlb-dns>/
 
-# 3. Nginx Proxy 설정 확인 (SSM 접속)
+# Nginx Proxy 설정 확인 (SSM 접속)
 aws ssm start-session --target <proxy-instance-id>
 sudo nginx -t
 sudo cat /etc/nginx/sites-available/proxy
 ```
 
-#### Nginx Proxy 헬스체크 실패
+**Nginx Proxy 헬스체크 실패**
 ```bash
-# 1. Nginx 상태 확인
+# Nginx 상태
 aws ssm start-session --target <proxy-instance-id>
 sudo systemctl status nginx
 
-# 2. 헬스체크 엔드포인트 테스트
+# 헬스체크 엔드포인트
 curl http://<proxy-private-ip>/health
 
-# 3. Nginx 재시작
+# 재시작
 sudo systemctl restart nginx
 ```
 
-## 🔐 보안 설정
+## 보안
 
-### Fortigate 보안 정책
-- ✅ **포트 제한**: 80, 443 포트만 허용
-- ✅ **DDoS 보호**: 자동 차단 기능 활성화
-- ✅ **IPS**: 침입 방지 시스템 활성화  
-- ✅ **로깅**: 모든 트래픽 로그 수집
+### FortiGate 정책
+- 80, 443 포트만 허용
+- DDoS 보호 켜놨음
+- IPS 활성화
+- 로그는 다 수집
 
-### AWS 보안 그룹
+### 보안 그룹
 ```bash
-# Fortigate 보안 그룹 (예시)
+# FortiGate SG
 Inbound:
-  - 22/tcp from 0.0.0.0/0        # SSH (제한 권장)
+  - 22/tcp from 0.0.0.0/0        # SSH (나중에 IP 제한하는게 좋음)
   - 80/tcp from 0.0.0.0/0        # HTTP
   - 443/tcp from 0.0.0.0/0       # HTTPS
-  - 541/tcp from 0.0.0.0/0       # Fortigate 관리
+  - 541/tcp from 0.0.0.0/0       # FortiGate 관리 포트
   - ICMP from 0.0.0.0/0          # Ping
 
-# API Gateway Endpoint 보안 그룹
+# Internal ALB SG
 Inbound:
-  - 443/tcp from VPC CIDR        # HTTPS from VPC
+  - 80/443 from VPC CIDR only
 ```
 
-## 📊 모니터링 및 알람
+## 모니터링
 
-### 주요 메트릭
+### CloudWatch 메트릭
 ```bash
-# CloudWatch 메트릭 설정
+# 보통 이런거 보면 됨
 - AWS/ApplicationELB: TargetResponseTime, HTTPCode_Target_2XX_Count
-- AWS/ApiGateway: Count, Latency, 4XXError, 5XXError  
-- AWS/EC2: CPUUtilization, NetworkIn, NetworkOut (Fortigate)
+- AWS/EC2: CPUUtilization, NetworkIn, NetworkOut (FortiGate)
 ```
 
-### 알람 설정 예시
+### 알람 예시
 ```bash
-# API Gateway 에러율 알람
+# 에러율 알람
 aws cloudwatch put-metric-alarm \
-  --alarm-name "API-Gateway-High-Error-Rate" \
+  --alarm-name "High-Error-Rate" \
   --metric-name 4XXError \
   --namespace AWS/ApiGateway \
   --statistic Sum \
@@ -414,135 +395,122 @@ aws cloudwatch put-metric-alarm \
   --comparison-operator GreaterThanThreshold
 ```
 
-## 💰 비용 최적화
+## 비용
 
-### 월간 예상 비용 (서울 리전)
+### 월간 예상 (서울 리전)
 ```
-🔥 FortiGate EC2 (m5.xlarge):      ~$140/월
-⚖️ External NLB:                   ~$20/월
-⚖️ Internal ALB:                   ~$20/월
-⚖️ Internal NLB (Proxy):           ~$20/월
-🔄 Nginx Proxy EC2 (t3.micro×2):   ~$15/월
-💻 Backend EC2 (VPC1×2, VPC2):     ~$50/월
-🌉 Transit Gateway:                ~$40/월
-🔗 VPC Endpoint (SSM):             ~$7/월
-📊 Data Transfer:                  변동적
+FortiGate EC2 (m5.xlarge):      ~$140/월
+External NLB:                   ~$20/월
+Internal ALB:                   ~$20/월
+Internal NLB (Proxy):           ~$20/월
+Nginx Proxy EC2 (t3.micro×2):   ~$15/월
+Backend EC2 (VPC1×2, VPC2):     ~$50/월
+Transit Gateway:                ~$40/월
+VPC Endpoint (SSM):             ~$7/월
+Data Transfer:                  변동적
 
-총 예상 비용: ~$315-390/월 (트래픽에 따라)
+대충 $315-390/월 정도 (트래픽에 따라 달라짐)
 ```
 
-### 비용 절약 방법
-- 🏷️ **Reserved Instance**: FortiGate EC2 1년 예약 시 30% 절약
-- 📦 **Spot Instance**: 개발환경 Nginx Proxy는 Spot Instance 활용
-- 🕒 **스케줄링**: 개발환경 자동 중지/시작
-- 🔄 **Nginx → WAF 전환**: 향후 실제 WAF 필요 시 인스턴스만 교체
+### 줄이는 방법
+- FortiGate는 Reserved Instance로 30% 정도 절약 가능
+- 개발환경 Nginx는 Spot Instance 써도 됨
+- 개발환경은 스케줄링으로 자동 on/off
+- Nginx 대신 실제 WAF 필요하면 인스턴스만 교체하면 됨
 
-## 🔄 업그레이드 및 유지보수
+## 유지보수
 
-### Fortigate 업그레이드
+### FortiGate 업그레이드
 ```bash
-# 1. 스냅샷 생성
+# 스냅샷 먼저
 aws ec2 create-snapshot \
   --volume-id <fortigate-volume-id> \
   --description "Pre-upgrade snapshot"
 
-# 2. 설정 백업
+# 설정 백업
 ssh admin@<fortigate-ip>
 execute backup config flash backup_$(date +%Y%m%d)
 
-# 3. 업그레이드 수행 (Fortigate 웹 GUI)
+# 업그레이드는 웹 GUI에서
 ```
 
-### Terraform 업그레이드
+### Terraform 업데이트
 ```bash
-# 상태 파일 백업
+# 상태 파일 백업 필수
 cp terraform.tfstate terraform.tfstate.backup
 
-# 버전 호환성 확인
+# 버전 확인
 terraform version
 terraform providers
 
-# 단계적 적용
+# 한번에 다 하지말고 단계적으로
 terraform plan -target=module.specific
 ```
 
-## 🛠️ 고급 설정
+## 기타
 
-### 다중 환경 지원
+### 다중 환경
 ```bash
-# 환경별 변수 파일 생성
+# 환경별 tfvars 만들어서
 terraform.tfvars.dev
-terraform.tfvars.staging  
+terraform.tfvars.staging
 terraform.tfvars.prod
 
-# 환경별 배포
+# 배포할 때 지정
 terraform apply -var-file=terraform.tfvars.prod
 ```
 
 ### 백업 자동화
 ```bash
-# Lambda 함수로 정기 백업 설정
-- Fortigate 설정 백업
-- Terraform 상태 파일 S3 백업
-- CloudWatch Events 스케줄링
+# Lambda로 정기 백업 돌리면 편함
+- FortiGate 설정
+- Terraform state를 S3로
+- CloudWatch Events로 스케줄링
 ```
 
-## 🆘 지원 및 문의
+## 참고
 
-### 📞 긴급 연락처
-- **인프라 팀**: infrastructure@company.com
-- **보안 팀**: security@company.com  
-- **24시간 온콜**: +82-XX-XXXX-XXXX
+### 추가 문서
+- [FortiGate 설정 가이드](./FORTIGATE-CONFIGURATION.md)
 
-### 📚 추가 문서
-- [Fortigate 설정 가이드](./FORTIGATE-CONFIGURATION.md)
-- [네트워크 다이어그램](./docs/network-diagram.png)
-- [보안 정책 문서](./docs/security-policy.md)
-
-### 🐛 이슈 리포팅
-```bash
-# 이슈 템플릿
-1. 환경 정보 (dev/staging/prod)
-2. 발생 시간
-3. 에러 메시지  
-4. 재현 단계
-5. 기대 결과 vs 실제 결과
+### 이슈 있으면
+```
+1. 환경 (dev/staging/prod)
+2. 언제 발생했는지
+3. 에러 메시지
+4. 재현 방법
+5. 예상했던거 vs 실제 결과
 ```
 
 ---
 
-## 📋 체크리스트
+## 체크리스트
 
-### 배포 완료 체크리스트
+### 배포 완료 후
 - [ ] Terraform apply 성공
-- [ ] FortiGate 인스턴스 접근 가능
+- [ ] FortiGate 접속 됨
 - [ ] Secondary IP (10.0.101.101) 설정 완료
-- [ ] FortiGate 방화벽 정책 적용 완료
-- [ ] External NLB Health Check 통과 (FortiGate)
-- [ ] Internal ALB 생성 완료
+- [ ] FortiGate 방화벽 정책 적용
+- [ ] External NLB Health Check 통과
+- [ ] Internal ALB 생성
 - [ ] 도메인별 Target Group 생성 (api/web/app/admin)
-- [ ] Host Header 라우팅 Rule 설정 완료
-- [ ] Internal NLB (Proxy) 생성 완료
-- [ ] Nginx Proxy 인스턴스 자동 생성 및 구성 완료
+- [ ] Host Header 라우팅 Rule 설정
+- [ ] Internal NLB (Proxy) 생성
+- [ ] Nginx Proxy 인스턴스 자동 생성/구성
 - [ ] Nginx Proxy Health Check 통과 (/health)
-- [ ] 도메인별 라우팅 테스트 완료
+- [ ] 도메인 라우팅 테스트
   - [ ] api.country-mouse.net
   - [ ] web.country-mouse.net
   - [ ] app.country-mouse.net
   - [ ] admin.country-mouse.net
-- [ ] Transit Gateway VPC 연결 확인
+- [ ] Transit Gateway 연결 확인
 - [ ] VPC Endpoint (SSM) 동작 확인
-- [ ] 모니터링 대시보드 설정
-- [ ] 알람 설정 완료
+- [ ] 모니터링/알람 설정
 
-### 운영 준비 체크리스트
-- [ ] DNS 레코드 설정 (Route53 또는 외부 DNS)
-- [ ] SSL 인증서 적용 (ACM)
-- [ ] 백업 정책 수립
-- [ ] 재해복구 계획 수립
-- [ ] 운영 매뉴얼 작성
-- [ ] Nginx Proxy → WAF 교체 계획 (선택)
-- [ ] 팀 교육 완료
-- [ ] 연락처 정보 업데이트
+### 운영 시작 전
+- [ ] DNS 레코드 설정
+- [ ] SSL 인증서 적용
+- [ ] 백업 정책 정리
+- [ ] Nginx → WAF 교체 계획 (선택)
 
 ---

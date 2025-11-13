@@ -87,37 +87,91 @@ resource "aws_instance" "proxy_instance_1" {
               # Install nginx
               apt-get install -y nginx
 
-              # Create nginx proxy configuration
+              # Create nginx proxy configuration with domain-based routing
               cat > /etc/nginx/sites-available/proxy <<'NGINXCONF'
+              # Upstream definitions for backend servers
+              upstream app_backend {
+                  # App backend servers (Load balanced)
+                  server 10.0.1.100:80 max_fails=3 fail_timeout=30s;
+                  server 10.0.2.100:80 max_fails=3 fail_timeout=30s backup;
+              }
+
+              upstream admin_backend {
+                  # Admin backend servers (Load balanced)
+                  server 10.0.2.100:80 max_fails=3 fail_timeout=30s;
+                  server 10.0.1.100:80 max_fails=3 fail_timeout=30s backup;
+              }
+
+              # Common proxy settings
+              proxy_set_header Host $host;
+              proxy_set_header X-Real-IP $remote_addr;
+              proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+              proxy_set_header X-Forwarded-Proto $scheme;
+              proxy_connect_timeout 60s;
+              proxy_send_timeout 60s;
+              proxy_read_timeout 60s;
+
+              # app.country-mouse.net server block
               server {
-                  listen 80 default_server;
-                  server_name _;
+                  listen 80;
+                  server_name app.country-mouse.net;
 
                   # Access logs
-                  access_log /var/log/nginx/proxy_access.log;
-                  error_log /var/log/nginx/proxy_error.log;
+                  access_log /var/log/nginx/app_access.log;
+                  error_log /var/log/nginx/app_error.log;
 
                   location / {
-                      # Proxy to backend EC2 instances
-                      # 실제 백엔드 IP는 나중에 설정 필요
-                      proxy_pass http://10.0.1.100;  # vpc1-ec2 private IP
-
-                      # Preserve Host header
-                      proxy_set_header Host $host;
-                      proxy_set_header X-Real-IP $remote_addr;
-                      proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-                      proxy_set_header X-Forwarded-Proto $scheme;
-
-                      # Proxy timeouts
-                      proxy_connect_timeout 60s;
-                      proxy_send_timeout 60s;
-                      proxy_read_timeout 60s;
+                      proxy_pass http://app_backend;
                   }
 
                   # Health check endpoint
                   location /health {
                       access_log off;
-                      return 200 "OK\n";
+                      return 200 "OK - app\n";
+                      add_header Content-Type text/plain;
+                  }
+              }
+
+              # admin.country-mouse.net server block
+              server {
+                  listen 80;
+                  server_name admin.country-mouse.net;
+
+                  # Access logs
+                  access_log /var/log/nginx/admin_access.log;
+                  error_log /var/log/nginx/admin_error.log;
+
+                  location / {
+                      proxy_pass http://admin_backend;
+                  }
+
+                  # Health check endpoint
+                  location /health {
+                      access_log off;
+                      return 200 "OK - admin\n";
+                      add_header Content-Type text/plain;
+                  }
+              }
+
+              # Default server block (catches all other requests)
+              server {
+                  listen 80 default_server;
+                  server_name _;
+
+                  # Access logs
+                  access_log /var/log/nginx/default_access.log;
+                  error_log /var/log/nginx/default_error.log;
+
+                  # Health check endpoint for NLB
+                  location /health {
+                      access_log off;
+                      return 200 "OK - NLB Health Check\n";
+                      add_header Content-Type text/plain;
+                  }
+
+                  # Reject all other requests
+                  location / {
+                      return 404 "Domain not configured\n";
                       add_header Content-Type text/plain;
                   }
               }
@@ -159,36 +213,91 @@ resource "aws_instance" "proxy_instance_2" {
               # Install nginx
               apt-get install -y nginx
 
-              # Create nginx proxy configuration
+              # Create nginx proxy configuration with domain-based routing
               cat > /etc/nginx/sites-available/proxy <<'NGINXCONF'
+              # Upstream definitions for backend servers
+              upstream app_backend {
+                  # App backend servers (Load balanced)
+                  server 10.0.1.100:80 max_fails=3 fail_timeout=30s;
+                  server 10.0.2.100:80 max_fails=3 fail_timeout=30s backup;
+              }
+
+              upstream admin_backend {
+                  # Admin backend servers (Load balanced)
+                  server 10.0.2.100:80 max_fails=3 fail_timeout=30s;
+                  server 10.0.1.100:80 max_fails=3 fail_timeout=30s backup;
+              }
+
+              # Common proxy settings
+              proxy_set_header Host $host;
+              proxy_set_header X-Real-IP $remote_addr;
+              proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+              proxy_set_header X-Forwarded-Proto $scheme;
+              proxy_connect_timeout 60s;
+              proxy_send_timeout 60s;
+              proxy_read_timeout 60s;
+
+              # app.country-mouse.net server block
               server {
-                  listen 80 default_server;
-                  server_name _;
+                  listen 80;
+                  server_name app.country-mouse.net;
 
                   # Access logs
-                  access_log /var/log/nginx/proxy_access.log;
-                  error_log /var/log/nginx/proxy_error.log;
+                  access_log /var/log/nginx/app_access.log;
+                  error_log /var/log/nginx/app_error.log;
 
                   location / {
-                      # Proxy to backend EC2 instances
-                      proxy_pass http://10.0.2.100;  # vpc1-ec2-2 private IP
-
-                      # Preserve Host header
-                      proxy_set_header Host $host;
-                      proxy_set_header X-Real-IP $remote_addr;
-                      proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-                      proxy_set_header X-Forwarded-Proto $scheme;
-
-                      # Proxy timeouts
-                      proxy_connect_timeout 60s;
-                      proxy_send_timeout 60s;
-                      proxy_read_timeout 60s;
+                      proxy_pass http://app_backend;
                   }
 
                   # Health check endpoint
                   location /health {
                       access_log off;
-                      return 200 "OK\n";
+                      return 200 "OK - app\n";
+                      add_header Content-Type text/plain;
+                  }
+              }
+
+              # admin.country-mouse.net server block
+              server {
+                  listen 80;
+                  server_name admin.country-mouse.net;
+
+                  # Access logs
+                  access_log /var/log/nginx/admin_access.log;
+                  error_log /var/log/nginx/admin_error.log;
+
+                  location / {
+                      proxy_pass http://admin_backend;
+                  }
+
+                  # Health check endpoint
+                  location /health {
+                      access_log off;
+                      return 200 "OK - admin\n";
+                      add_header Content-Type text/plain;
+                  }
+              }
+
+              # Default server block (catches all other requests)
+              server {
+                  listen 80 default_server;
+                  server_name _;
+
+                  # Access logs
+                  access_log /var/log/nginx/default_access.log;
+                  error_log /var/log/nginx/default_error.log;
+
+                  # Health check endpoint for NLB
+                  location /health {
+                      access_log off;
+                      return 200 "OK - NLB Health Check\n";
+                      add_header Content-Type text/plain;
+                  }
+
+                  # Reject all other requests
+                  location / {
+                      return 404 "Domain not configured\n";
                       add_header Content-Type text/plain;
                   }
               }

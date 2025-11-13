@@ -45,10 +45,16 @@ resource "aws_lb_listener" "nlb_external_listener" {
   }
 }
 
-resource "aws_lb_target_group_attachment" "ip_external_attach" {
+resource "aws_lb_target_group_attachment" "ip_external_attach_az2a" {
   target_group_arn = aws_lb_target_group.nlb_external_tg.arn
-  target_id        = "10.0.101.101"   # VIP 전용 Secondary IP
-  port             = 80               # 원래대로 복원
+  target_id        = "10.0.101.101"   # VIP 전용 Secondary IP (AZ-2a)
+  port             = 80
+}
+
+resource "aws_lb_target_group_attachment" "ip_external_attach_az2c" {
+  target_group_arn = aws_lb_target_group.nlb_external_tg.arn
+  target_id        = "10.0.102.101"   # VIP 전용 Secondary IP (AZ-2c)
+  port             = 80
 }
 
 # HTTPS Target Group for External NLB
@@ -82,10 +88,17 @@ resource "aws_lb_listener" "nlb_external_https_listener" {
   }
 }
 
-# HTTPS Target Group Attachment
-resource "aws_lb_target_group_attachment" "ip_external_https_attach" {
+# HTTPS Target Group Attachment (AZ-2a)
+resource "aws_lb_target_group_attachment" "ip_external_https_attach_az2a" {
   target_group_arn = aws_lb_target_group.nlb_external_https_tg.arn
-  target_id        = "10.0.101.101"   # 원래 Secondary IP로 복원
+  target_id        = "10.0.101.101"   # Secondary IP (AZ-2a)
+  port             = 443
+}
+
+# HTTPS Target Group Attachment (AZ-2c)
+resource "aws_lb_target_group_attachment" "ip_external_https_attach_az2c" {
+  target_group_arn = aws_lb_target_group.nlb_external_https_tg.arn
+  target_id        = "10.0.102.101"   # Secondary IP (AZ-2c)
   port             = 443
 }
 

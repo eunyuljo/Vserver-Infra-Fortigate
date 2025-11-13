@@ -8,7 +8,7 @@ resource "aws_instance" "fortifate-ec2" {
   }
   
   tags = {
-    Name = "fortigate-ec2"
+    Name = "fortigate-ec2-az2a"
   }
 
   key_name = "eyjo-fnf-test-key" # SSH 접속을 위한 키 페어
@@ -221,14 +221,97 @@ resource "aws_route" "vpc1_private_to_vpc2" {
   transit_gateway_id     = aws_ec2_transit_gateway.tgw.id
 }
 
-## fortigate 접속용 정보 ##
-output "instance_public_ip" {
-  description = "The public IP address of the instance"
-  value       = aws_instance.fortifate-ec2.public_ip
-}
+# ############################################################
+# # FortiGate #2 - AZ-2c (HA Configuration)
+# ############################################################
 
-## fortigate 접속용 정보 ##
-output "instance_instance_id" {
-  description = "fortigate initialized password"
-  value       = aws_instance.fortifate-ec2.id
-}
+# # FortiGate #2 EC2 Instance
+# resource "aws_instance" "fortifate-ec2-az2c" {
+#   ami           = "ami-007cad54955b2bc38"
+#   instance_type = "m5.xlarge"
+
+#   primary_network_interface {
+#     network_interface_id = aws_network_interface.eni_0_az2c.id
+#   }
+
+#   tags = {
+#     Name = "fortigate-ec2-az2c"
+#   }
+
+#   key_name = "eyjo-fnf-test-key"
+
+#   lifecycle {
+#     ignore_changes = [source_dest_check]
+#   }
+# }
+
+# # ENI_0 for AZ-2c (Public Subnet)
+# resource "aws_network_interface" "eni_0_az2c" {
+#   subnet_id   = module.vpc1.public_subnets[1]  # AZ-2c public subnet
+#   private_ips  = ["10.0.102.100", "10.0.102.101"]
+#   security_groups = [aws_security_group.fortigate_sg.id]
+#   source_dest_check = false
+
+#   tags = {
+#     Name = "fortigate-eni-0-az2c"
+#   }
+# }
+
+# # ENI1 for AZ-2c (Private Subnet)
+# resource "aws_network_interface" "eni_1_az2c" {
+#   subnet_id       = module.vpc1.private_subnets[1]  # AZ-2c private subnet
+#   private_ips     = ["10.0.2.100"]
+#   security_groups = [aws_security_group.fortigate_eni_sg.id]
+#   source_dest_check = false
+
+#   tags = {
+#     Name = "fortigate-eni-1-az2c"
+#   }
+# }
+
+# # ENI2 for AZ-2c (Intra/Management Subnet)
+# resource "aws_network_interface" "eni_2_az2c" {
+#   subnet_id       = module.vpc1.intra_subnets[1]  # AZ-2c intra subnet
+#   private_ips     = ["10.0.11.100"]
+#   security_groups = [aws_security_group.fortigate_eni_sg.id]
+#   source_dest_check = false
+
+#   tags = {
+#     Name = "fortigate-eni-2-az2c"
+#   }
+# }
+
+# # ENI1를 EC2에 Attach (AZ-2c)
+# resource "aws_network_interface_attachment" "eni_attach_az2c" {
+#   instance_id          = aws_instance.fortifate-ec2-az2c.id
+#   network_interface_id = aws_network_interface.eni_1_az2c.id
+#   device_index         = 1
+# }
+
+# # ENI2를 EC2에 Attach (AZ-2c)
+# resource "aws_network_interface_attachment" "eni_attach_2_az2c" {
+#   instance_id          = aws_instance.fortifate-ec2-az2c.id
+#   network_interface_id = aws_network_interface.eni_2_az2c.id
+#   device_index         = 2
+# }
+
+# ## fortigate 접속용 정보 ##
+# output "instance_public_ip" {
+#   description = "The public IP address of the instance (AZ-2a)"
+#   value       = aws_instance.fortifate-ec2.public_ip
+# }
+
+# output "instance_instance_id" {
+#   description = "fortigate initialized password (AZ-2a)"
+#   value       = aws_instance.fortifate-ec2.id
+# }
+
+# output "instance_public_ip_az2c" {
+#   description = "The public IP address of the instance (AZ-2c)"
+#   value       = aws_instance.fortifate-ec2-az2c.public_ip
+# }
+
+# output "instance_instance_id_az2c" {
+#   description = "fortigate initialized password (AZ-2c)"
+#   value       = aws_instance.fortifate-ec2-az2c.id
+# }
